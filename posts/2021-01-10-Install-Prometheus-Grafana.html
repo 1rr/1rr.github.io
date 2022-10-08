@@ -1,0 +1,155 @@
+<div>
+  <a href="https://1ac.github.io">Index</a>
+</div>
+
+<p>Устанавливаем связку из Prometheus и Grafana</p>
+
+<p>
+  Prometheus является открытой (Apache 2.0) time series СУБД, написанной на
+  языке Go и изначально разработанной в компании SoundCloud. Другими словами,
+  эта штука хранит ваши метрики. Интересной особенностью Prometheus является то,
+  что он сам тянет метрики с заданного множества сервисов (делает pull). За счет
+  этого у Prometheus не могут забиться какие-то там очереди или вроде того, а
+  значит мониторинг никогда не станет узким местом системы. Также проект
+  интересен тем, что он принципиально не предлагает какого-либо горизонтального
+  масштабирования или high availability. Дескать, третье тысячелетие на дворе —
+  в случае чего просто возьмите машину помощнее, не выпендривайтесь.
+</p>
+
+<p>
+  Node Exporter — сервис, задача которого заключается в экспорте информации о
+  машине в формате, понятном Prometheus’у. Вообще, для Prometheus написано
+  множество готовых exporter’ов практически под все существующие системы —
+  всякие там веб-серверы, СУБД, очереди сообщений, и так далее. В рамках этой
+  заметки мы будем использовать только Node Exporter, поскольку он в любом
+  случае вам понадобится. Настройка других exporter’ов вряд ли будет сильно
+  отличаться.
+</p>
+
+<p>
+  Grafana представляет собой открытый (Apache 2.0) веб-фронтенд к различным time
+  series СУБД, таким, как Graphite, InfluxDB, и, само собой разумеется,
+  Prometheus. В общем, Grafana рисует для вас красивые графики, используя
+  информацию из Prometheus. Характерно, что у Prometheus есть и собственный
+  веб-интерфейс. Однако он предельно минималистичен и довольно неудобен. Поэтому
+  даже сами разработчики Prometheus рекомендуют использовать Grafana.
+</p>
+
+<p>
+  Думаю, теперь мы готовы перейти и к практике. Все описанные далее шаги были
+  произведены на Ubuntu Linux 18.04 LTS. Если вы используете какое-то другое
+  окружение, отличия вряд ли будут большими.
+</p>
+
+<p>
+  Важно! Настройки, связанные с безопасностью, в рамках этого поста не
+  рассматриваются. За информацией о том, как настроить фаервол, поднять Nginx
+  для какой-нибудь аутентификации, а также прикрутить TLS, обращайтесь к
+  соответствующим более ранним заметкам. Обращаю ваше внимание на то, что по
+  умолчанию Prometheus слушает все сетевые интерфейсы без какой-либо
+  аутентификации и шифрования. Grafana имеет кое-какую аутентификацию, но также
+  слушает все интерфейсы и не имеет шифрования.
+</p>
+
+<h2>Устанавливаем Node Exporter</h2>
+<p>
+  Начнем с Node Exporter, чтобы сразу добавить его в Prometheus, как только до
+  него дойдет очередь. В общем, чтобы не прыгать от настройки одного компонента
+  к настройке другого. Готовые пакеты для Ubuntu есть, но они несколько отстают
+  от апстрима. Поэтому ставить будем руками. Благо, это Go — вся программа
+  представляет собой один бинарник.
+</p>
+
+Говорим: `sudo useradd --no-create-home --shell /bin/false node_exporter` #
+Последнюю версию пакета ищем здесь: #
+https://github.com/prometheus/node_exporter/releases ``` wget
+https://github.com/.../node_exporter-0.17.0.linux-amd64.tar.gz tar -xvzf
+node_exporter-0.17.0.linux-amd64.tar.gz sudo cp
+node_exporter-0.17.0.linux-amd64/node_exporter /usr/local/bin/ ``` Создаем
+`/etc/systemd/system/node_exporter.service`: ``` [Unit] Description=Node
+Exporter Wants=network-online.target After=network-online.target [Service]
+User=node_exporter Group=node_exporter ExecStart=/usr/local/bin/node_exporter
+[Install] WantedBy=default.target ``` Запускаем демона: ``` sudo systemctl
+daemon-reload sudo systemctl start node_exporter sudo systemctl status
+node_exporter sudo systemctl enable node_exporter ``` Проверяем, что метрики
+отдаются: `curl 'localhost:9100/metrics'` Готово! Только попробуйте сказать, что
+это было сложно :) Запускаем Prometheus Выполняем следующие команды: `sudo
+useradd --no-create-home --shell /bin/false prometheus` # Свежий пакет находим
+здесь: # https://github.com/prometheus/prometheus/releases ``` wget
+https://github.com/.../prometheus-2.6.0.linux-amd64.tar.gz tar -xvzf
+prometheus-2.6.0.linux-amd64.tar.gz sudo cp
+prometheus-2.6.0.linux-amd64/prometheus /usr/local/bin/ sudo cp
+prometheus-2.6.0.linux-amd64/promtool /usr/local/bin/ sudo mkdir /etc/prometheus
+sudo cp -r prometheus-2.6.0.linux-amd64/consoles/ \ /etc/prometheus/consoles
+sudo cp -r prometheus-2.6.0.linux-amd64/console_libraries/ \
+/etc/prometheus/console_libraries sudo cp
+prometheus-2.6.0.linux-amd64/prometheus.yml \ /etc/prometheus/ sudo chown -R
+prometheus:prometheus /etc/prometheus sudo mkdir /var/lib/prometheus sudo chown
+prometheus:prometheus /var/lib/prometheus ``` Правим
+`/etc/prometheus/prometheus.yml`, указывая, где искать Node Exporter: # ... #
+Важно! В YAML запрещено использовать табуляцию. # Все отступы - это два пробела.
+``` scrape_configs: - job_name: 'prometheus' # ... тут все оставляем как было
+... - job_name: 'node_localhost' static_configs: - targets: ['localhost:9100']
+``` Создаем `/etc/systemd/system/prometheus.service`: ``` [Unit]
+Description=Prometheus Wants=network-online.target After=network-online.target
+[Service] User=prometheus Group=prometheus ExecStart=/usr/local/bin/prometheus \
+--config.file /etc/prometheus/prometheus.yml \ --storage.tsdb.path
+/var/lib/prometheus/ \ --web.console.templates=/etc/prometheus/consoles \
+--web.console.libraries=/etc/prometheus/console_libraries [Install]
+WantedBy=default.target ``` Запускаем Prometheus: ``` sudo systemctl
+daemon-reload sudo systemctl start prometheus sudo systemctl status prometheus
+sudo systemctl enable prometheus ``` Проверяем, что Prometheus отдает свои
+собственные метрики: `curl 'localhost:9090/metrics'` Простенький веб-интерфейс,
+который я упоминал выше, живет на том же порту. Поднимаем Grafana Grafana будем
+ставить из deb-пакета: # Ссылку на свежий пакет находим тут: #
+https://grafana.com/grafana/download ``` wget
+https://dl.grafana.com/oss/release/grafana_5.4.2_amd64.deb sudo apt install
+./grafana_5.4.2_amd64.deb sudo systemctl start grafana-server sudo systemctl
+status grafana-server sudo systemctl enable grafana-server ``` Далее идем на
+порт 3000 с логином и паролем admin. Grafana сразу предложит сменить пароль.
+Дальше проходим незамысловатые диалоги, и добавляем Prometheus в качестве
+источника данных. Настройка дашбордов с нуля может быть довольно трудоемким
+делом. К счастью, у Grafana есть каталог готовых дашбордов практически на все
+случаи жизни. Мне, например, понравился вот такой готовый дашборд для Node
+Exporter. Для его установки идем в диалог Import Dashboard. Только диалог
+довольно хитро спрятан в интерфейсе. У меня он открывается по следующей ссылке:
+`http://your-grafana-host:3000/dashboard/import` Далее копируем JSON с сайта и
+получаем красивую картинку вроде такой: Grafana и дашборд Node Exporter Full
+Интерфейс у Grafana поначалу кажется немного странным. По-видимому, это связано
+с тем, что в интерфейсе максимум места отведено под графики. Таким образом,
+большинство элементов управления представляют собой небольшие иконки, в которых
+первое время трудно ориентироваться. Но к интерфейсу быстро привыкаешь.
+Оглянуться не успеете, как вы начнете мастерски заполнять дашборды десятками
+кастомных графиков!
+
+<h3>Заключение</h3>
+<p>
+  Конечно же, данное кратенькое введение не претендует на полноту. Например,
+  Prometheus позволяет настраивать еще и алерты, умеет интегрироваться с
+  Kubernetes, через так называемые адаптеры данные из Prometheus можно
+  складывать в аналитические базы данных (ClickHouse, ну или в PostgreSQL хотя
+  бы), есть собственный язык запросов PromQL, в котором даже есть джоины, а
+  метрики можно не только pull’ить, но и отправлять push’ем через Push Gateways.
+</p>
+
+<p>
+  Также нелишним будет знать некоторые особенности устройства Prometheus. В
+  частности, по умолчанию все данные хранятся в течение 15 дней, метрики
+  собираются раз в 15 секунд, а одна метрика в среднем занимает два байта на
+  сэмпл. Обладая этой информацией, и зная количество метрик, можно прикинуть,
+  сколько дискового пространства вам понадобится для их хранения. Следует также
+  принять во внимание, что сторадж Prometheus не позиционируется, как супер
+  надежный. Если вдруг у вас очень ценные метрики, рекомендуется сохранять их
+  куда-то еще через адаптеры.
+</p>
+
+<p>
+  За дополнительной информацией рекомендуется обращаться к официальной
+  документации. Подробности устройства стораджа описаны здесь. Если же вам очень
+  нужна система, чтобы как Prometheus, только распределенная, обратите внимание
+  на проект Thanos.
+</p>
+
+<div>
+  <a href="https://1ac.github.io">Index</a>
+</div>

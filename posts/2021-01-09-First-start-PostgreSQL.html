@@ -1,0 +1,143 @@
+<div>
+    <h1><a href="https://1ac.github.io">Index</a> | <a href="https://1ac.github.io/rsschool-cv/">CV</a></h1>
+    <br/>
+</div>
+
+
+<H1> Начало работы с PostgreSQL </H1>
+
+<p>PostgreSQL — это кроссплатформенная объектно-реляционная СУБД с открытым исходным кодом. Из этой статьи вы узнаете,
+    как установить PostgreSQL в Ubuntu Linux, подключиться к нему и выполнить пару простых SQL-запросов, а также о том,
+    как настроить резервное копирование.</p>
+
+<h2> Установка </h2>
+
+<p>Чтобы установить PostgreSQL 9.2 в Ubuntu 18.04, выполните следующие команды:</p>
+<code>
+    sudo apt update
+    sudo apt install postgresql postgresql-contrib
+</code>
+
+<p>Подключимся к базе через оболочку: </p>
+<code> sudo -u postgres psql </code>
+
+<p>Создадим тестовую базу данных и тестового пользователя: </p>
+<code>
+    CREATE DATABASE dt;
+    CREATE USER usr WITH password 'qwerty';
+    GRANT ALL ON DATABASE dt TO usr;
+</code>
+<p>Для выхода из оболочки введите команду \q.</p>
+
+<h2> Создание базы </h2>
+<p>Теперь попробуем поработать с созданной базой данных от имени usr: </p>
+<code>
+    psql -h localhost dt usr
+</code>
+
+<p>Создадим новую таблицу: </p>
+<code>
+    CREATE SEQUENCE user_ids;
+    CREATE TABLE users (
+    id INTEGER PRIMARY KEY DEFAULT NEXTVAL('user_ids'),
+    login CHAR(64),
+    password CHAR(64));
+</code>
+
+<p>В отличие от некоторых других СУБД, в PostgreSQL используются последовательности (sequences) вместо auto_increment. С
+    помощью nextval мы можем получать уникальные числа для заданной последовательности:</p>
+<code>
+    `SELECT NEXTVAL('user_ids');`
+</code>
+
+<p>Прописав в качестве значения по умолчанию для поля id таблицы users значение NEXTVAL('user_ids'), мы добились того же
+    эффекта, что дает auto_increment. При добавлении новых записей в таблицу мы можем не указывать id, потому что
+    уникальный id будет сгенерирован автоматически. Несколько таблиц могут использовать одну и ту же последовательность.
+    Таким образом мы сможем гарантировать, что значения некоторых полей у этих таблиц не пересекаются. В этом смысле
+    последовательности более гибки, чем auto_increment.
+</p>
+
+<p>Точно такую же таблицу можно создать и при помощи всего лишь одной команды:</p>
+<code>
+    CREATE TABLE users2 (
+    id SERIAL PRIMARY KEY,
+    login CHAR(64),
+    password CHAR(64)
+    );
+</code>
+<p>В этом случае последовательность для поля id создается автоматически.</p>
+
+
+\d            получить список всех доступных таблиц
+
+\d
+<table> вывести описание таблицы
+    <table>
+
+        \d+ выведет расширенную информацию по таблице
+
+        \l список баз данных
+
+        \c dbname переключится на базу данных
+
+        \? отображение справки
+
+        <p> Важно отметить, что в PostgreSQL по умолчанию имена таблиц и столбцов приводятся к нижнему регистру. Если
+            это поведение нежелательно, можно воспользоваться двойными кавычками:</p>
+        <code>CREATE TABLE "anotherTable" ("someValue" VARCHAR(64));</code>
+
+        <p> Еще одна особенность PostgreSQL, с которой могут возникнуть сложности в начале работы с этой СУБД — так
+            называемые «схемы». Схема представляет собой что-то вроде пространства имен для таблиц, как бы каталог с
+            таблицами внутри базы данных. </p>
+
+        <p> Создание схемы: </p>
+        <code>CREATE SCHEMA bookings;</code>
+
+        <p> В остальном работа с PostgreSQL мало чем отличается от работы с любой другой реляционной СУБД: </p>
+        <code>
+            INSERT INTO users (login, password)
+            VALUES ('afiskon', '123456');
+            SELECT * FROM users;
+        </code>
+
+        <h2> Доступ к базе </h2>
+
+        <p> При дефолтных настройках не удастся подключится к postgrs с другой машины: </p>
+        <code>psql -h 192.168.0.105 dt usr`</code>
+
+        <p> В ответ будет ошибка: </p>
+        <code>
+            psql: could not connect to server: Connection refused
+            Is the server running on host "192.168.0.105" and accepting
+            TCP/IP connections on port 5432?
+        </code>
+
+        <p> Чтобы исправить это, добавьте строку в файл `/etc/postgresql/9.2/main/postgresql.conf`: </p>
+        <code>listen_addresses = 'localhost,192.168.0.105'` </code>
+
+        <p> в файл `/etc/postgresql/9.2/main/pg_hba.conf`: </p>
+        <code>host all all 192.168.0.105/16 md5` </code>
+
+        <p> Для перезапуска posgres: </p>
+        <code>`sudo service postgresql restart` </code>
+
+        <h2> Резервное копирование </h2>
+        <p> Резервное копирование в PostgreSQL выглядит примерно так: </p>
+        <code> pg_dump -c -h 192.168.0.105 -U usr dt > dump.sql </code>
+
+        <p> для сжатия дамба базы используется флаг -Fc. </p>
+
+        <p> Восстановление из резервной копии: </p>
+        <code> `cat dump.sql | psql -h 192.168.0.105 dt usr` </code>
+
+        <h2> Настройка PostgreSQL </h2>
+        <p> Конфиг по умолчанию не предполагает использования его на бою. Перед использованием PostgreSQL в боевых
+            условиях эти настройки обязательно нужно изменить под ваше железо и ваше приложение. Для быстрой настройки
+            можно воспользоваться: </p>
+        - Cybertec PostgreSQL Configurator;
+        - PgTune.
+
+        ## Конекты
+        Для управления конектами следует использовать PgBouncer. Хороший профит получается после превышения 100 конектов
+        на инстанс.
+
